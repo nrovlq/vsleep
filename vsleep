@@ -1,0 +1,104 @@
+#!/bin/bash
+
+# author: Nicolas Rostagni
+# subject: visual sleep, for impatient humans ..
+# usage: $0 <seconds>
+
+# .. or small exercise to write in modern bash style
+
+progress=true
+seconds=$1
+[[ -z "$seconds" ]] && exit 1
+
+oneday=86400
+if [[ $seconds =~ ^([0-9]+)(s|m|h|d)$ ]] ; then
+   case "${BASH_REMATCH[2]}" in
+       s) seconds=${BASH_REMATCH[1]} ;;
+       m) seconds=$(( ${BASH_REMATCH[1]} * 60 )) ;;
+       h) seconds=$(( ${BASH_REMATCH[1]} * 3600 )) ;;
+       d) seconds=$(( ${BASH_REMATCH[1]} * oneday )) ;;
+   esac
+fi
+
+[[ $seconds =~ ^([0-9]+)$ ]] || exit 1
+[[ $seconds -lt 0 ]] && exit 1
+[[ $seconds -eq 0 ]] && exit 0
+[[ $seconds -ge $(( oneday * 366 )) ]] && { exec sleep $seconds ; } # this script is for humans, not robots, passing to normal sleep
+
+start=$(printf "%(%s)T" -1)
+end=$(( start + seconds ))
+cols=$(tput cols 2>/dev/null || echo 80)
+
+if [[ $seconds -gt $oneday ]] ; then
+    fmt="%FT%T"
+    plen=$(( cols - 66 ))
+else
+    fmt="%H:%M:%S"
+    plen=$(( cols - 40 ))
+fi
+
+if [[ $plen -gt $seconds ]] ; then
+    plen=$seconds
+fi
+
+target=$(printf "%($fmt)T" $end)
+tputSC=$(tput sc 2>/dev/null)
+tputEL1=$(tput el1 2>/dev/null || echo "\n")
+tputRC=$(tput rc 2>/dev/null)
+
+# progress bar 
+function progress {
+    if $progress ; then
+	pbuf=$pbuf" ["
+	for ((i=0; i<plen; i++)) ; do
+	    if (( ( ( seconds - remain ) * plen ) / ( seconds ) > i )) ; then
+		if [[ $remain -eq 0 ]] ; then
+		    pbuf=$pbuf"#"
+		else
+		    pbuf=$pbuf"="
+		fi
+	    else
+		pbuf=$pbuf"."
+	    fi
+	done
+	pbuf=$pbuf"]"
+    fi
+}
+
+function alive {
+    if $progress && [[ -n "$tputSC" ]] ; then
+	case $(( remain % 4 )) in
+	    0) pbuf=$pbuf"|" ;;
+	    1) pbuf=$pbuf"\\" ;;
+	    2) pbuf=$pbuf"-" ;;
+	    3) pbuf=$pbuf"/" ;;
+	esac
+    fi
+}
+
+function display {
+    pbuf=$(printf "%($fmt)T" -1)" + "$hours1$(printf "%(%M:%S)T" $remain)" ETA "$target
+}
+
+while [[ $(printf "%(%s)T" -1) -lt $end ]] ; do
+    now=$(printf "%(%s)T" -1)
+    remain=$(( end - now ))
+    hours=$(( remain / 3600 ))
+    if [[ $hours -ge 1 ]] ; then
+	hours1="$hours:"
+    else
+	hours1=""
+    fi
+    display
+    progress
+    alive
+    printf "%s" "$tputSC$pbuf " 1>&2
+    # instead of external sleep command..
+    read -n 42 -t 1 a
+    printf "%s" "$tputEL1$tputRC" 1>&2
+done
+remain=0
+display
+progress
+printf "%s\n" "$pbuf $tputRC" 1>&2
+exit 0
